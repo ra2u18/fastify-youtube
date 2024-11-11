@@ -1,5 +1,6 @@
 import createServer from './server';
 import { env } from '@/config';
+import { closeDbConnection } from '@/shared/db/postgres';
 import GracefulServer from '@gquittet/graceful-server';
 import { randomUUID } from 'crypto';
 import Fastify from 'fastify';
@@ -16,7 +17,7 @@ async function init() {
   await createServer(fastify);
 
   const gracefulServer = GracefulServer(fastify.server, {
-    closePromises: [],
+    closePromises: [closeDbConnection],
   });
 
   gracefulServer.on(GracefulServer.READY, () => {

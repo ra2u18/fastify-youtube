@@ -1,8 +1,25 @@
-import { FastifyInstance } from "fastify";
+import { env } from '@/config';
+import AutoLoad from '@fastify/autoload';
+import Cors from '@fastify/cors';
+import Helmet from '@fastify/helmet';
+import { FastifyInstance } from 'fastify';
+import path from 'node:path';
 
 // + Here we will register base plugins and auto load custom ones
 export default async function createServer(fastify: FastifyInstance) {
-  fastify.get("/", function (_request, reply) {
-    reply.send({ hello: "world" });
+  await fastify.register(Helmet, {
+    global: true,
+    // The following settings are needed for graphiql, see https://github.com/graphql/graphql-playground/issues/1283
+    contentSecurityPolicy: !env.isDevelopment,
+    crossOriginEmbedderPolicy: !env.isDevelopment,
+  });
+
+  await fastify.register(Cors, {
+    origin: false,
+  });
+
+  await fastify.register(AutoLoad, {
+    dir: path.join(__dirname, 'plugins'),
+    dirNameRoutePrefix: false,
   });
 }

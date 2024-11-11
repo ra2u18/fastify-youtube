@@ -1,23 +1,28 @@
-import { Static, Type } from "@sinclair/typebox";
-import envSchema from "env-schema";
+import { Static, Type } from '@sinclair/typebox';
+import envSchema from 'env-schema';
 
 enum NodeEnv {
-  development = "development",
-  production = "production",
-  test = "test",
+  development = 'development',
+  production = 'production',
+  test = 'test',
 }
 
 export enum LogLevel {
-  debug = "debug",
-  info = "info",
-  warn = "warn",
-  error = "error",
+  debug = 'debug',
+  info = 'info',
+  warn = 'warn',
+  error = 'error',
 }
 
 const schema = Type.Object({
+  POSTGRES_URL: Type.String(),
+  POSTGRES_PASSWORD: Type.String(),
+  POSTGRES_USER: Type.String(),
+  POSTGRES_DB: Type.String(),
+
   NODE_ENV: Type.Enum(NodeEnv),
   LOG_LEVEL: Type.Enum(LogLevel),
-  HOST: Type.String({ default: "localhost" }),
+  HOST: Type.String({ default: 'localhost' }),
   PORT: Type.Number({ default: 3000 }),
 });
 
@@ -30,12 +35,15 @@ export default {
   nodeEnv: env.NODE_ENV,
   isDevelopment: env.NODE_ENV === NodeEnv.development,
   isProduction: env.NODE_ENV === NodeEnv.production,
-  version: process.env.npm_package_version ?? "0.0.0",
+  version: process.env.npm_package_version ?? '0.0.0',
   log: {
     level: env.LOG_LEVEL,
   },
   server: {
     host: env.HOST,
     port: env.PORT,
+  },
+  db: {
+    url: `postgres://${env.POSTGRES_USER}:${env.POSTGRES_PASSWORD}@${env.POSTGRES_URL}/${env.POSTGRES_DB}?sslmode=disable`,
   },
 };
