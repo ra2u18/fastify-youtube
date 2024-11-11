@@ -1,0 +1,32 @@
+{
+  "name": "fastify-app",
+  "version": "0.0.0",
+  "description": "A Fastify template that follows clean architecture patterns",
+  "main": "index.js",
+  "scripts": {
+    "create:env": "node -r fs -e \"fs.copyFileSync('.env.example', '.env', fs.constants.COPYFILE_EXCL)\"",
+    "start": "tsx watch src --env-file=.env | pino-pretty"
+  },
+  "keywords": [],
+  "author": "Rick Codes <dev.a.riccardo@gmail.com>",
+  "license": "ISC",
+  "devDependencies": {
+    "@eslint/compat": "^1.2.2",
+    "@eslint/js": "^9.14.0",
+    "@trivago/prettier-plugin-sort-imports": "^4.3.0",
+    "@tsconfig/node22": "^22.0.0",
+    "@types/node": "^22.9.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-n": "^17.13.1",
+    "eslint-plugin-promise": "^7.1.0",
+    "eslint-plugin-unicorn": "^56.0.0",
+    "globals": "^15.12.0",
+    "typescript-eslint": "^8.13.0"
+  },
+  "dependencies": {
+    "@gquittet/graceful-server": "^5.2.7",
+    "@sinclair/typebox": "^0.33.22",
+    "env-schema": "^6.0.0",
+    "fastify": "^5.1.0"
+  }
+}

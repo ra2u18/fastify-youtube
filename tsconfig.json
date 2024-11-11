@@ -1,0 +1,29 @@
+{
+  // Inherits configuration from @tsconfig/node22, which provides base settings for Node.js v22
+  "extends": "@tsconfig/node22/tsconfig.json",
+  "compilerOptions": {
+    // Configures module path aliases - allows importing from "@/" instead of relative paths
+    "paths": {
+      "@/*": [
+        "./src/*"
+      ]
+    },
+    // Enables importing JSON files as modules
+    "resolveJsonModule": true,
+    // Reports errors on unused local variables
+    "noUnusedLocals": true,
+    // Reports errors on unused parameters in functions
+    "noUnusedParameters": true,
+    // Reports errors for fallthrough cases in switch statements
+    "noFallthroughCasesInSwitch": true,
+    // Disables automatic type inference for variables without type annotations
+    "noImplicitAny": false,
+    // Disables stricter checking of generic types
+    "noStrictGenericChecks": false
+  },
+  // Specifies which files to include in compilation
+  "include": [
+    "src", // Include all files in src directory
+    "tests" // Include all files in tests directory
+  ]
+}
