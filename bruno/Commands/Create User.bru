@@ -1,0 +1,20 @@
+meta {
+  name: Create User
+  type: http
+  seq: 2
+}
+
+post {
+  url: http://localhost:3000/v1/users
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "email": "john@gmail.com",
+    "country": "France",
+    "postalCode": "10000",
+    "street": "Grande Rue"
+  }
+}

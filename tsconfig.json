@@ -4,9 +4,7 @@
   "compilerOptions": {
     // Configures module path aliases - allows importing from "@/" instead of relative paths
     "paths": {
-      "@/*": [
-        "./src/*"
-      ]
+      "@/*": ["./src/*"]
     },
     // Enables importing JSON files as modules
     "resolveJsonModule": true,

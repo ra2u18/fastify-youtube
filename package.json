@@ -5,7 +5,8 @@
   "main": "index.js",
   "scripts": {
     "create:env": "node -r fs -e \"fs.copyFileSync('.env.example', '.env', fs.constants.COPYFILE_EXCL)\"",
-    "start": "tsx watch src --env-file=.env | pino-pretty"
+    "start": "tsx watch src --env-file=.env | pino-pretty",
+    "format": "prettier --write ."
   },
   "keywords": [],
   "author": "Rick Codes <dev.a.riccardo@gmail.com>",
@@ -16,6 +17,7 @@
     "@trivago/prettier-plugin-sort-imports": "^4.3.0",
     "@tsconfig/node22": "^22.0.0",
     "@types/node": "^22.9.0",
+    "@types/ramda": "^0.30.2",
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-n": "^17.13.1",
     "eslint-plugin-promise": "^7.1.0",
@@ -32,11 +34,14 @@
     "@fastify/request-context": "^6.0.1",
     "@fastify/swagger": "^9.2.0",
     "@fastify/swagger-ui": "^5.1.0",
+    "@fastify/type-provider-json-schema-to-ts": "^4.0.1",
+    "@fastify/type-provider-typebox": "^5.0.1",
     "@gquittet/graceful-server": "^5.2.7",
     "@sinclair/typebox": "^0.33.22",
     "env-schema": "^6.0.0",
     "fastify": "^5.1.0",
     "fastify-plugin": "^5.0.1",
-    "postgres": "^3.4.5"
+    "postgres": "^3.4.5",
+    "ramda": "^0.30.1"
   }
 }

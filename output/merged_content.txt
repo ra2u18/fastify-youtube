@@ -1,0 +1,849 @@
+// src/config/env.ts
+
+import { Static, Type } from '@sinclair/typebox';
+import envSchema from 'env-schema';
+
+enum NodeEnv {
+  development = 'development',
+  production = 'production',
+  test = 'test',
+}
+
+export enum LogLevel {
+  debug = 'debug',
+  info = 'info',
+  warn = 'warn',
+  error = 'error',
+}
+
+const schema = Type.Object({
+  POSTGRES_URL: Type.String(),
+  POSTGRES_PASSWORD: Type.String(),
+  POSTGRES_USER: Type.String(),
+  POSTGRES_DB: Type.String(),
+
+  NODE_ENV: Type.Enum(NodeEnv),
+  LOG_LEVEL: Type.Enum(LogLevel),
+  HOST: Type.String({ default: 'localhost' }),
+  PORT: Type.Number({ default: 3000 }),
+});
+
+const env = envSchema<Static<typeof schema>>({
+  dotenv: true,
+  schema,
+});
+
+export default {
+  nodeEnv: env.NODE_ENV,
+  isDevelopment: env.NODE_ENV === NodeEnv.development,
+  isProduction: env.NODE_ENV === NodeEnv.production,
+  version: process.env.npm_package_version ?? '0.0.0',
+  log: {
+    level: env.LOG_LEVEL,
+  },
+  server: {
+    host: env.HOST,
+    port: env.PORT,
+  },
+  db: {
+    url: `postgres://${env.POSTGRES_USER}:${env.POSTGRES_PASSWORD}@${env.POSTGRES_URL}/${env.POSTGRES_DB}?sslmode=disable`,
+  },
+};
+
+
+// ==================================================
+
+// src/config/index.ts
+
+export { default as env } from "./env";
+
+
+// ==================================================
+
+// src/declarations.d.ts
+
+import { requestContext } from '@fastify/request-context';
+import { JsonSchemaToTsProvider } from '@fastify/type-provider-json-schema-to-ts';
+import {
+  FastifyBaseLogger,
+  FastifyInstance,
+  RawReplyDefaultExpression,
+  RawRequestDefaultExpression,
+  RawServerDefault,
+} from 'fastify';
+
+declare global {
+  type FastifyRouteInstance = FastifyInstance<
+    RawServerDefault,
+    RawRequestDefaultExpression<RawServerDefault>,
+    RawReplyDefaultExpression<RawServerDefault>,
+    FastifyBaseLogger,
+    JsonSchemaToTsProvider
+  >;
+}
+
+declare module '@fastify/request-context' {
+  interface RequestContextData {
+    requestId: string;
+  }
+}
+
+
+// ==================================================
+
+// src/index.ts
+
+import createServer from './server';
+import { env } from '@/config';
+import { closeDbConnection } from '@/shared/db/postgres';
+import GracefulServer from '@gquittet/graceful-server';
+import { randomUUID } from 'crypto';
+import Fastify from 'fastify';
+
+async function init() {
+  const fastify = Fastify({
+    logger: { level: env.log.level, redact: ['headers.Authorization'] },
+    genReqId: function(req) {
+      return (req.headers['request-id'] as string) ?? randomUUID();
+    },
+    ignoreDuplicateSlashes: true,
+  });
+
+  await createServer(fastify);
+
+  const gracefulServer = GracefulServer(fastify.server, {
+    closePromises: [closeDbConnection],
+  });
+
+  gracefulServer.on(GracefulServer.READY, () => {
+    fastify.log.info('Server is ready');
+  });
+
+  gracefulServer.on(GracefulServer.SHUTTING_DOWN, () => {
+    fastify.log.info('Server is shutting down');
+  });
+
+  gracefulServer.on(GracefulServer.SHUTDOWN, (error) => {
+    fastify.log.info('Server is down because of', error.message);
+  });
+
+  try {
+    await fastify.listen({ port: env.server.port });
+    gracefulServer.setReady();
+  } catch (error) {
+    fastify.log.error(error);
+    process.exit(1);
+  }
+}
+
+init();
+
+
+// ==================================================
+
+// src/modules/user/commands/create-user/create-user.handler.ts
+
+import { CreateUserRequestDto } from './create-user.schema';
+import { userActionCreator } from '@/modules/user';
+
+export type CreateUserCommandResult = Promise<string>;
+export const createUserCommand =
+  userActionCreator<CreateUserRequestDto>('create');
+export const createUserEvent =
+  userActionCreator<CreateUserRequestDto>('create');
+
+
+// ==================================================
+
+// src/modules/user/commands/create-user/create-user.route.ts
+
+import { createUserRequestDtoSchema } from './create-user.schema';
+import { idDtoSchema } from '@/shared/api/id.response.dto';
+import { TypeBoxTypeProvider } from '@fastify/type-provider-typebox';
+import { createUserCommand, CreateUserCommandResult } from './create-user.handler';
+
+export default async function createUser(fastify: FastifyRouteInstance) {
+    fastify.withTypeProvider<TypeBoxTypeProvider>().route({
+        method: 'POST',
+        url: '/v1/users',
+        schema: {
+            description: 'Create User',
+            body: createUserRequestDtoSchema,
+            response: { 200: idDtoSchema },
+            tags: ['users'],
+        },
+        handler: async (req, res) => {
+            const id = await fastify.commandBus.execute<CreateUserCommandResult>(
+                createUserCommand(req.body)
+            );
+
+            return res.status(201).send({ id });
+        },
+    });
+}
+
+
+// ==================================================
+
+// src/modules/user/commands/create-user/create-user.schema.ts
+
+import { Static, Type } from '@sinclair/typebox';
+
+export const createUserRequestDtoSchema = Type.Object({
+  email: Type.String({
+    example: 'john@gmail.com',
+    description: 'User email address',
+    maxLength: 320,
+    minLength: 5,
+    format: 'email',
+  }),
+  country: Type.String({
+    example: 'France',
+    description: 'Country of residence',
+    maxLength: 50,
+    minLength: 4,
+  }),
+  postalCode: Type.String({
+    example: '10000',
+    description: 'Postal code',
+    maxLength: 10,
+    minLength: 4,
+  }),
+  street: Type.String({
+    example: 'Grande Rue',
+    description: 'Street',
+    maxLength: 50,
+    minLength: 5,
+  }),
+});
+
+export type CreateUserRequestDto = Static<typeof createUserRequestDtoSchema>;
+
+
+// ==================================================
+
+// src/modules/user/index.ts
+
+import { actionCreatorFactory } from "@/shared/crqs/action-creator";
+
+export const userActionCreator = actionCreatorFactory('user');
+
+
+// ==================================================
+
+// src/server/index.ts
+
+import { env } from '@/config';
+import AutoLoad from '@fastify/autoload';
+import Cors from '@fastify/cors';
+import Helmet from '@fastify/helmet';
+import { TypeBoxTypeProvider } from '@fastify/type-provider-typebox';
+import { FastifyInstance } from 'fastify';
+import path from 'node:path';
+
+// + Here we will register base plugins and auto load custom ones
+export default async function createServer(fastify: FastifyInstance) {
+  await fastify.register(Helmet, {
+    global: true,
+    // The following settings are needed for graphiql, see https://github.com/graphql/graphql-playground/issues/1283
+    contentSecurityPolicy: !env.isDevelopment,
+    crossOriginEmbedderPolicy: !env.isDevelopment,
+  });
+
+  await fastify.register(Cors, {
+    origin: false,
+  });
+
+  await fastify.register(AutoLoad, {
+    dir: path.join(__dirname, 'plugins'),
+    dirNameRoutePrefix: false,
+  });
+
+  await fastify.register(AutoLoad, {
+    dir: path.join(__dirname, '../modules'),
+    dirNameRoutePrefix: false,
+    options: { autoPrefix: 'api' },
+    matchFilter: (path) =>
+      ['.route.ts', '.resolver.ts'].some((e) => path.endsWith(e)),
+  });
+
+  return fastify.withTypeProvider<TypeBoxTypeProvider>();
+}
+
+
+// ==================================================
+
+// src/server/plugins/cqrs.ts
+
+import fastifyCQRS from '@/shared/crqs';
+import { FastifyInstance } from 'fastify';
+import fp from 'fastify-plugin';
+
+async function cqrsPlugin(fastify: FastifyInstance) {
+  await fastify.register(fastifyCQRS);
+}
+
+export default fp(cqrsPlugin, { name: 'CQRSPlugin ' });
+
+
+// ==================================================
+
+// src/server/plugins/error-handler.ts
+
+import {
+  ApiErrorResponse,
+  apiErrorResponseSchema,
+} from '@/shared/api/api-error.response';
+import { getRequestId } from '@/shared/app/app-request-context';
+import { ExceptionBase } from '@/shared/exceptions';
+import { FastifyError, FastifyErrorCodes, FastifyInstance } from 'fastify';
+import fp from 'fastify-plugin';
+
+const fastifyErrorCodesMap = {
+  FST_ERR_VALIDATION: (error: FastifyError) => ({
+    subErrors: (error.validation ?? []).map((validationError) => ({
+      path: validationError.instancePath,
+      message: validationError.message ?? '',
+    })),
+    statusCode: 400,
+    message: 'Validation error',
+    error: 'Bad Request', // https://datatracker.ietf.org/doc/html/rfc7231#section-6.5.1
+  }),
+  FST_ERR_NOT_FOUND: () => ({
+    message: 'Not Found',
+    error: 'Not Found',
+    statusCode: 404, //  'https://datatracker.ietf.org/doc/html/rfc7231#section-6.5.4',
+  }),
+};
+
+async function errorHandlerPlugin(fastify: FastifyInstance) {
+  fastify.setErrorHandler((error: FastifyError | Error, _, res) => {
+    // Handle fastify errors
+    const fastifyError =
+      'code' in error
+        ? fastifyErrorCodesMap[error.code as keyof FastifyErrorCodes]
+        : undefined;
+
+    if (fastifyError) {
+      const response = fastifyError(error);
+      response.correlationId = getRequestId();
+      return res.status(response.statusCode).send(response);
+    }
+
+    // Catch all other errors
+    fastify.log.error(error);
+    if (error instanceof ExceptionBase) {
+      return res.status(error.statusCode).send({
+        statusCode: error.statusCode,
+        message: error.message,
+        error: error.error,
+        correlationId: getRequestId(),
+      } satisfies ApiErrorResponse);
+    }
+
+    return res.status(500).send({
+      statusCode: 500,
+      message: 'Internal Server Error', // https://datatracker.ietf.org/doc/html/rfc7231#section-6.6.1
+      error: 'Internal Server Error',
+      correlationId: getRequestId(),
+    } satisfies ApiErrorResponse);
+  });
+
+  // Add the ExceptionResponse schema to the fastify instance
+  fastify.addSchema(apiErrorResponseSchema);
+}
+
+// Export the plugin
+export default fp(errorHandlerPlugin, {
+  name: 'errorHandler',
+});
+
+
+// ==================================================
+
+// src/server/plugins/request-context.ts
+
+import {
+  fastifyRequestContext,
+  requestContext,
+} from '@fastify/request-context';
+import { FastifyInstance } from 'fastify';
+import fp from 'fastify-plugin';
+
+async function requestContextPlugin(fastify: FastifyInstance) {
+  await fastify.register(fastifyRequestContext);
+
+  fastify.addHook('onRequest', async (req) => {
+    requestContext.set('requestId', req.id);
+  });
+}
+
+export default fp(requestContextPlugin, {
+  name: 'requestContext',
+});
+
+
+// ==================================================
+
+// src/server/plugins/swagger.ts
+
+import Swagger from '@fastify/swagger';
+import SwaggerUI from '@fastify/swagger-ui';
+import { FastifyInstance } from 'fastify';
+import fp from 'fastify-plugin';
+
+async function swaggerGeneratorPlugin(fastify: FastifyInstance) {
+    await fastify.register(Swagger, {
+        openapi: {
+            openapi: '3.1.0',
+            info: {
+                title: 'fastify-boilerplate',
+                description:
+                    'The Swagger API documentation for the fastify-boilerplate project.',
+                version: process.env.npm_package_version ?? '0.0.0',
+            },
+        },
+    });
+
+    await fastify.register(SwaggerUI, {
+        routePrefix: '/api-docs',
+    });
+
+    fastify.log.info(`Swagger documentation is available at /api-docs`);
+}
+
+export default fp(swaggerGeneratorPlugin, {
+    name: 'swaggerGenerator',
+});
+
+
+// ==================================================
+
+// src/shared/api/api-error.response.ts
+
+import { Static, Type } from '@sinclair/typebox';
+
+export const apiErrorResponseSchema = Type.Object(
+    {
+        statusCode: Type.Number({ example: 400 }),
+        message: Type.String({ example: 'Validation Error' }),
+        error: Type.String({ example: 'Bad Request' }),
+        correlationId: Type.String({ example: 'YevPQs' }),
+        subErrors: Type.Optional(
+            Type.String({
+                description: 'Optional list of sub-errors',
+                example: 'incorrect email',
+            }),
+        ),
+    },
+    { $id: 'ApiErrorResponse' },
+);
+
+export type ApiErrorResponse = Static<typeof apiErrorResponseSchema>;
+
+
+// ==================================================
+
+// src/shared/api/id.response.dto.ts
+
+import { Type } from '@sinclair/typebox';
+
+export const idDtoSchema = Type.Object({
+    id: Type.String({
+        example: '2cdc8ab1-6d50-49cc-ba14-54e4ac7ec231',
+        description: "Entity's id",
+    }),
+});
+
+
+// ==================================================
+
+// src/shared/app/app-request-context.ts
+
+import { requestContext } from '@fastify/request-context';
+
+// Get request ID
+function getRequestId(): string {
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    return requestContext.get('requestId')!;
+}
+
+export { getRequestId };
+
+
+// ==================================================
+
+// src/shared/crqs/action-creator.ts
+
+import { Action, CommandCreator, Meta } from './bus.types';
+
+export function actionCreatorFactory(prefix?: string | null) {
+  const base = prefix ? `${prefix}/` : '';
+
+  function actionCreator<Payload>(type: string, commonMeta?: Meta) {
+    const fullType = base + type;
+
+    return Object.assign(
+      (payload: Payload, meta?: Meta) => {
+        const action: Action<Payload> = {
+          type: fullType,
+          payload,
+        };
+
+        if (commonMeta || meta) {
+          action.meta = Object.assign({}, commonMeta, meta);
+        }
+
+        return action;
+      },
+      {
+        type: fullType,
+      },
+    ) as CommandCreator<Payload>;
+  }
+
+  return actionCreator;
+}
+
+
+// ==================================================
+
+// src/shared/crqs/bus.types.ts
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+export type Meta = null | Record<string, any>;
+
+export interface Action<Payload> {
+  type: string;
+  payload: Payload;
+  meta?: Meta;
+}
+
+export interface CommandCreator<Payload> {
+  type: string;
+
+  (payload: Payload, meta?: Meta): Action<Payload>;
+}
+
+export type CommandHandler = (command: Action<any>) => Promise<any>;
+export type EventHandler = (event: Action<any>) => void;
+
+export interface CommandBus {
+  register(type: string, handler: CommandHandler): void;
+  unregister(type: string): void;
+  execute<R>(command: Action<any>): Promise<R>;
+  addMiddleware(fn: Middleware): void;
+}
+
+export interface EventBus {
+  on(type: string, handler: EventHandler): void;
+  emit(event: Action<any>): void;
+  addMiddleware(fn: Middleware): void;
+}
+
+export type Middleware = (
+  action: Action<unknown>,
+  handler: CommandHandler | EventHandler,
+) => Promise<CommandHandler | EventHandler>;
+
+
+// ==================================================
+
+// src/shared/crqs/command-bus.ts
+
+import { Middleware, CommandBus, CommandHandler, Action } from './bus.types';
+import { pipe } from 'ramda';
+
+export function commandBus(): CommandBus {
+  const handlers = new Map<string, CommandHandler>();
+  const middlewares: Middleware[] = [];
+
+  function register<T extends string = string>(
+    type: T,
+    handler: CommandHandler,
+  ): void {
+    if (typeof type !== 'string') {
+      throw new TypeError('type must be a string');
+    }
+    if (typeof handler !== 'function') {
+      throw new TypeError('handler must be a function');
+    }
+    handlers.set(type, handler);
+  }
+
+  function unregister<T extends string = string>(type: T): void {
+    if (typeof type !== 'string') {
+      throw new TypeError('type must be a string');
+    }
+    handlers.delete(type);
+  }
+
+  function execute<R>(command: Action<unknown>): Promise<R> {
+    if (!command || typeof command !== 'object') {
+      throw new TypeError('command must be an object');
+    }
+    if (typeof command.type !== 'string') {
+      throw new TypeError('command.type must be a string');
+    }
+    const handler = handlers.get(command.type);
+    if (!handler) {
+      throw new Error(`Command type of ${command.type} is not registered`);
+    }
+    if (middlewares.length > 0) {
+      const list = (pipe as any)(...middlewares);
+      return list(command, handler);
+    } else {
+      return handler(command);
+    }
+  }
+
+  function addMiddleware(fn: Middleware) {
+    middlewares.push(fn);
+  }
+
+  return {
+    register,
+    unregister,
+    execute,
+    addMiddleware,
+  };
+}
+
+
+// ==================================================
+
+// src/shared/crqs/index.ts
+
+import { CommandBus } from './bus.types';
+import { commandBus } from './command-bus';
+import { makeTrackExecutionTime } from './middlewares';
+import fastifyPlugin from 'fastify-plugin';
+
+interface CQRSPluginOption { }
+
+const CQRSPlugin = fastifyPlugin<CQRSPluginOption>(
+  (fastify, _opts, done) => {
+    if (fastify.commandBus) {
+      throw new Error('This plugin is already registered');
+    }
+
+    const commandBusInstance = commandBus();
+    commandBusInstance.addMiddleware(makeTrackExecutionTime(fastify.log));
+
+    fastify.decorate('commandBus', commandBusInstance);
+
+    done();
+  },
+  { name: 'fastify-cqrs', fastify: '5.x' },
+);
+
+declare module 'fastify' {
+  interface FastifyInstance {
+    commandBus: CommandBus;
+  }
+}
+
+export default CQRSPlugin;
+
+
+// ==================================================
+
+// src/shared/crqs/middlewares.ts
+
+import { Action, CommandHandler, EventHandler } from './bus.types';
+import { FastifyBaseLogger } from 'fastify';
+
+export function makeTrackExecutionTime(logger: FastifyBaseLogger) {
+  return async function trackExecutionTime(
+    action: Action<unknown>,
+    handler: CommandHandler | EventHandler,
+  ) {
+    const startTime = performance.now();
+    const result = await handler(action);
+    const endTime = performance.now();
+    logger.info(
+      `Action ${action.type} took ${(endTime - startTime).toFixed(2)}ms of execution time.`,
+    );
+    return result;
+  };
+}
+
+
+// ==================================================
+
+// src/shared/db/postgres.ts
+
+import { env } from '@/config';
+import { LogLevel } from '@/config/env';
+import postgres from 'postgres';
+
+const sql = postgres(env.db.url, {
+    debug: (
+        conn: number,
+        query: string,
+        params: unknown[],
+        paramTypes: unknown[],
+    ) => {
+        if (env.log.level === LogLevel.debug) {
+            console.debug(`
+    SQL::
+      Executing query: "${query.trim()}"
+      Params: ${JSON.stringify(params)}
+      Param Types: ${JSON.stringify(paramTypes)}
+      Connection: ${conn}
+    `);
+        }
+    },
+});
+
+export async function closeDbConnection() {
+    await sql.end({ timeout: 5 });
+}
+
+export default sql;
+
+
+// ==================================================
+
+// src/shared/exceptions/exception-base.ts
+
+import { getRequestId } from '@/shared/app/app-request-context';
+
+export interface SerializedException {
+    message: string;
+    error: string;
+    correlationId: string;
+    statusCode?: number;
+    stack?: string;
+    cause?: string;
+    metadata?: unknown;
+}
+
+export abstract class ExceptionBase extends Error {
+    abstract error: string;
+    abstract statusCode: number;
+
+    public readonly correlationId: string;
+
+    /**
+     * @param {string} message
+     * @param cause
+     * @param {Object} [metadata={}]
+     * **BE CAREFUL** not to include sensitive info in 'metadata'
+     * to prevent leaks since all exception's data will end up
+     * in application's log files. Only include non-sensitive
+     * info that may help with debugging.
+     */
+    constructor(
+        readonly message: string,
+        readonly cause?: Error,
+        readonly metadata?: unknown,
+    ) {
+        super(message);
+        Error.captureStackTrace(this, this.constructor);
+        this.correlationId = getRequestId();
+    }
+
+    /**
+     * By default in NodeJS Error objects are not
+     * serialized properly when sending plain objects
+     * to external processes. This method is a workaround.
+     * Keep in mind not to return a stack trace to user when in production.
+     * https://iaincollins.medium.com/error-handling-in-javascript-a6172ccdf9af
+     */
+    toJSON(): SerializedException {
+        return {
+            message: this.message,
+            error: this.error,
+            statusCode: this.statusCode,
+            stack: this.stack,
+            correlationId: this.correlationId,
+            cause: JSON.stringify(this.cause),
+            metadata: this.metadata,
+        };
+    }
+}
+
+
+// ==================================================
+
+// src/shared/exceptions/exceptions.ts
+
+import { ExceptionBase } from './exception-base';
+
+/**
+ * Used to indicate that an incorrect argument was provided to a method/function/class constructor
+ *
+ * @class ArgumentInvalidException
+ * @extends {ExceptionBase}
+ */
+export class ArgumentInvalidException extends ExceptionBase {
+    readonly statusCode = 400;
+    readonly error = 'Bad Request';
+}
+
+/**
+ * Used to indicate conflicting entities (usually in the database)
+ *
+ * @class ConflictException
+ * @extends {ExceptionBase}
+ */
+export class ConflictException extends ExceptionBase {
+    readonly error = 'Conflict';
+    readonly statusCode = 409;
+}
+
+/**
+ * Used to indicate that entity is not found
+ *
+ * @class NotFoundException
+ * @extends {ExceptionBase}
+ */
+export class NotFoundException extends ExceptionBase {
+    static readonly message = 'Not found';
+    readonly error = 'Not Found';
+    readonly statusCode = 404;
+
+    constructor(message = NotFoundException.message) {
+        super(message);
+    }
+}
+
+/**
+ * Used to indicate an internal server error that does not fall under all other errors
+ *
+ * @class InternalServerErrorException
+ * @extends {ExceptionBase}
+ */
+export class InternalServerErrorException extends ExceptionBase {
+    static readonly message = 'Internal server error';
+    readonly error = 'Internal server error';
+    constructor(message = InternalServerErrorException.message) {
+        super(message);
+    }
+
+    readonly statusCode = 500;
+}
+
+export class DatabaseErrorException extends ExceptionBase {
+    static readonly message = 'Database error';
+    readonly error = 'Internal server error';
+    constructor(message = InternalServerErrorException.message, cause?: Error) {
+        super(message, cause);
+    }
+
+    readonly statusCode = 500;
+}
+
+
+// ==================================================
+
+// src/shared/exceptions/index.ts
+
+export * from './exception-base';
+export * from './exceptions';
+
+
+// ==================================================
+

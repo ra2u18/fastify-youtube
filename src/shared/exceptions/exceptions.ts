@@ -7,8 +7,8 @@ import { ExceptionBase } from './exception-base';
  * @extends {ExceptionBase}
  */
 export class ArgumentInvalidException extends ExceptionBase {
-    readonly statusCode = 400;
-    readonly error = 'Bad Request';
+  readonly statusCode = 400;
+  readonly error = 'Bad Request';
 }
 
 /**
@@ -18,8 +18,8 @@ export class ArgumentInvalidException extends ExceptionBase {
  * @extends {ExceptionBase}
  */
 export class ConflictException extends ExceptionBase {
-    readonly error = 'Conflict';
-    readonly statusCode = 409;
+  readonly error = 'Conflict';
+  readonly statusCode = 409;
 }
 
 /**
@@ -29,13 +29,13 @@ export class ConflictException extends ExceptionBase {
  * @extends {ExceptionBase}
  */
 export class NotFoundException extends ExceptionBase {
-    static readonly message = 'Not found';
-    readonly error = 'Not Found';
-    readonly statusCode = 404;
+  static readonly message = 'Not found';
+  readonly error = 'Not Found';
+  readonly statusCode = 404;
 
-    constructor(message = NotFoundException.message) {
-        super(message);
-    }
+  constructor(message = NotFoundException.message) {
+    super(message);
+  }
 }
 
 /**
@@ -45,21 +45,21 @@ export class NotFoundException extends ExceptionBase {
  * @extends {ExceptionBase}
  */
 export class InternalServerErrorException extends ExceptionBase {
-    static readonly message = 'Internal server error';
-    readonly error = 'Internal server error';
-    constructor(message = InternalServerErrorException.message) {
-        super(message);
-    }
+  static readonly message = 'Internal server error';
+  readonly error = 'Internal server error';
+  constructor(message = InternalServerErrorException.message) {
+    super(message);
+  }
 
-    readonly statusCode = 500;
+  readonly statusCode = 500;
 }
 
 export class DatabaseErrorException extends ExceptionBase {
-    static readonly message = 'Database error';
-    readonly error = 'Internal server error';
-    constructor(message = InternalServerErrorException.message, cause?: Error) {
-        super(message, cause);
-    }
+  static readonly message = 'Database error';
+  readonly error = 'Internal server error';
+  constructor(message = InternalServerErrorException.message, cause?: Error) {
+    super(message, cause);
+  }
 
-    readonly statusCode = 500;
+  readonly statusCode = 500;
 }

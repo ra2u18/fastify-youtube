@@ -2,6 +2,7 @@ import { env } from '@/config';
 import AutoLoad from '@fastify/autoload';
 import Cors from '@fastify/cors';
 import Helmet from '@fastify/helmet';
+import { TypeBoxTypeProvider } from '@fastify/type-provider-typebox';
 import { FastifyInstance } from 'fastify';
 import path from 'node:path';
 
@@ -22,4 +23,14 @@ export default async function createServer(fastify: FastifyInstance) {
     dir: path.join(__dirname, 'plugins'),
     dirNameRoutePrefix: false,
   });
+
+  await fastify.register(AutoLoad, {
+    dir: path.join(__dirname, '../modules'),
+    dirNameRoutePrefix: false,
+    options: { autoPrefix: 'api' },
+    matchFilter: (path) =>
+      ['.route.ts', '.resolver.ts'].some((e) => path.endsWith(e)),
+  });
+
+  return fastify.withTypeProvider<TypeBoxTypeProvider>();
 }
